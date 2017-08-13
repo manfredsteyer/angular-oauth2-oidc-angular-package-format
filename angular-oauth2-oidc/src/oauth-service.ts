@@ -5,16 +5,24 @@ import { Http, URLSearchParams, Headers } from '@angular/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs/Observable';
 import { Subject } from 'rxjs/Subject';
-import { ValidationHandler } from "./token-validation/validation-handler";
+import { ValidationHandler, ValidationParams } from "./token-validation/validation-handler";
 import { NullValidationHandler } from "./token-validation/null-validation-handler";
+import { UrlHelperService } from "./url-helper.service";
 
+declare var require: any;
 var sha256: any = require('sha256');
 
 export class LoginOptions {
     onTokenReceived?: (receivedTokens: ReceivedTokens) => void;
-    validationHandler?: ValidationHandler;
+    validationHandler?: (receivedTokens: ReceivedTokens) => Promise<any>;
     onLoginError?: (params: object) => void;
     customHashFragment?: string;
+}
+
+export interface OAuthStorage {
+    getItem(key: string): string | null;
+    removeItem(key: string): void;
+    setItem(key: string, data: string): void;
 }
 
 /**
@@ -37,6 +45,9 @@ export abstract class OAuthEvent {
 export class OAuthSuccessEvent extends OAuthEvent {
 }
 
+export class OAuthInfoEvent extends OAuthEvent {
+}
+
 export class OAuthErrorEvent extends OAuthEvent {
 
     constructor(
@@ -49,6 +60,14 @@ export class OAuthErrorEvent extends OAuthEvent {
 
 }
     
+export interface ParsedIdToken {
+    id_token: string;
+    id_token_claims_obj: object,
+    id_token_header_obj: object,
+    id_token_claims_json: string,
+    id_token_header_json: string,
+    id_token_expires_at: number;
+}
 
 @Injectable()
 export class OAuthService {
@@ -64,7 +83,6 @@ export class OAuthService {
     public options: any;
     public state = "";
     public issuer = "";
-    public validationHandler: any;
     public logoutUrl = "";
     public clearHashAfterLogin: boolean = true;
     public tokenEndpoint: string;
@@ -75,7 +93,7 @@ export class OAuthService {
     public silentRefreshMessagePrefix: string = '';
     public siletRefreshTimeout: number = 1000 * 20; 
     public dummyClientSecret: string;
-    public tokenValidationHandler: ValidationHandler = NullValidationHandler;
+    public tokenValidationHandler: ValidationHandler;
     public jwks: object;
 
     public discoveryDocumentLoaded: boolean = false;
@@ -95,9 +113,11 @@ export class OAuthService {
 
     private grantTypesSupported: Array<string> = [];
 
-    private _storage: Storage = localStorage;
+    private _storage: OAuthStorage = localStorage;
 
-    constructor(private http: Http) {
+    constructor(
+        private http: Http,
+        private urlHelper: UrlHelperService) {
        this.discoveryDocumentLoaded$ = this.discoveryDocumentLoadedSubject.asObservable();
        this.events = this.eventsSubject.asObservable();
     }
@@ -108,12 +128,11 @@ export class OAuthService {
         }
     }
 
-    public setStorage(storage: Storage): void {
+    public setStorage(storage: OAuthStorage): void {
         this._storage = storage;
     }
 
     loadDiscoveryDocument(fullUrl: string = null): Promise<object> {
-
 
         return new Promise((resolve, reject) => {
 
@@ -451,26 +470,25 @@ export class OAuthService {
         }
     }
 
-    tryLogin(options: LoginOptions = null) {
+    tryLogin(options: LoginOptions = null): Promise<void> | null {
         
         options = options || { };
             
         let parts: object;
 
         if (options.customHashFragment) {
-            parts = this.parseQueryString(options.customHashFragment);
+            parts = this.urlHelper.parseQueryString(options.customHashFragment);
         }
         else {
-            parts = this.getFragment();
+            parts = this.urlHelper.getFragment();
         }
 
         if (parts["error"]) {
             this.debug('error trying to login');
             this.handleLoginError(options, parts);
-            
-            this.eventsSubject.next(new OAuthErrorEvent('token_error', {}, parts));
-
-            return false;
+            let err = new OAuthErrorEvent('token_error', {}, parts);
+            this.eventsSubject.next(err);
+            return Promise.reject(err);
         }
 
         var accessToken = parts["access_token"];
@@ -480,92 +498,66 @@ export class OAuthService {
         var oidcSuccess = false;
         var oauthSuccess = false;
 
-        if (!accessToken || !state) return false;
-        if (this.oidc && !idToken) return false;
-
-        var savedNonce = this._storage.getItem("nonce");
+        if (!accessToken || !state) return null;
+        if (this.oidc && !idToken) return null;
 
         // Our state might be URL encoded
         // Check for this and then decode it if it is
+        // TODO: Check this!
         let decodedState = decodeURIComponent(state);
         if (decodedState != state) {
           state = decodedState;
         }
         
+        var savedNonce = this._storage.getItem("nonce");
         var stateParts = state.split(';');
+        if (stateParts.length > 1) {
+            this.state = stateParts[1];
+        }
         var nonceInState = stateParts[0];
-        if (savedNonce === nonceInState) {
-            
-            this.storeAccessTokenResponse(accessToken, null, parts['expires_in']);
 
-            if (stateParts.length > 1) {
-                this.state = stateParts[1];
-            }
-
-            oauthSuccess = true;
-
+        if (savedNonce !== nonceInState) {
+            let err = 'validating access_token failed. wrong state/nonce.';
+            console.error(err, savedNonce, nonceInState);
+            return Promise.reject(err);
         }
         
-        if (!oauthSuccess) return false;
+        this.storeAccessTokenResponse(accessToken, null, parts['expires_in']);
 
-        let idTokenResult = {};
+        if (!this.oidc) return Promise.resolve();
 
-        if (!this.oidc) return true;
-
-        idTokenResult = this.processIdToken(idToken, accessToken);
-        if (!idTokenResult) {
-            this.eventsSubject.next(new OAuthErrorEvent('validation_error', {}));
-            return false;  
-        }        
-        
-        if (!options.validationHandler) {
-            options.validationHandler = this.validationHandler;
-        }
-
-        if (options.validationHandler) {
-            
-            let idTokenHeader = null;
-            let idTokenHeaderJson = idTokenResult['id_token_header_obj'];
-            if (idTokenHeaderJson) {
-                idTokenHeader = JSON.parse(idTokenHeaderJson)
-            }
-
-            var validationParams = { 
-                accessToken: accessToken, 
-                idToken: idToken,
-                idTokenHeader: idTokenHeader,
-                jwks: this.jwks
-            };
-            
-            options
-                .validationHandler(validationParams)
-                .then(() => {
-                    this._storage.setItem("id_token", idTokenResult['id_token']);
-                    this._storage.setItem("id_token_claims_obj", idTokenResult['id_token_claims_obj']);
-                    this._storage.setItem("id_token_expires_at", "" + idTokenResult['id_token_expires_at']);
-
-                    this.eventsSubject.next(new OAuthSuccessEvent('token_received'));
-                    this.callOnTokenReceivedIfExists(options);
+        return this
+                .processIdToken(idToken, accessToken)
+                .then(result => {
+                    if (options.validationHandler) {
+                        return options.validationHandler({
+                            accessToken: accessToken,
+                            idClaims: result.id_token_claims_obj,
+                            idToken: result.id_token,
+                            state: state
+                        }).then(_ => result);
+                    }
+                    return result;
                 })
+                .then(result => {
+                        this.storeIdToken(result);
+                        this.eventsSubject.next(new OAuthSuccessEvent('token_received'));
+                        this.callOnTokenReceivedIfExists(options);
+                        if (this.clearHashAfterLogin) location.hash = '';
+                    })
                 .catch(reason => {
                     this.eventsSubject.next(new OAuthErrorEvent('validation_error', reason));
                     console.error('Error validating tokens');
                     console.error(reason);
-                })
-        }
-        else {
-            this._storage.setItem("id_token", idTokenResult['id_token']);
-            this._storage.setItem("id_token_claims_obj", idTokenResult['id_token_claims_obj']);
-            this._storage.setItem("id_token_expires_at", "" + idTokenResult['id_token_expires_at']);
-
-            this.eventsSubject.next(new OAuthSuccessEvent('token_received'));
-            this.callOnTokenReceivedIfExists(options);
-        }
+                });
         
-        if (this.clearHashAfterLogin) location.hash = '';
-        
-        return true;
     };
+
+    protected storeIdToken(idToken: ParsedIdToken) {
+        this._storage.setItem("id_token", idToken.id_token);
+        this._storage.setItem("id_token_claims_obj", idToken.id_token_claims_json);
+        this._storage.setItem("id_token_expires_at", "" + idToken.id_token_expires_at);
+    }
 
     private handleLoginError(options: LoginOptions, parts: object): void {
         var savedNonce = this._storage.getItem("nonce");
@@ -574,64 +566,85 @@ export class OAuthService {
         if (this.clearHashAfterLogin) location.hash = '';
     }
     
-    private processIdToken(idToken: string, accessToken: string): object {
-            var tokenParts = idToken.split(".");
-            var headerBase64 = this.padBase64(tokenParts[0]);
-            var headerJson = Base64.decode(headerBase64);
-            var claimsBase64 = this.padBase64(tokenParts[1]);
-            var claimsJson = Base64.decode(claimsBase64);
-            var claims = JSON.parse(claimsJson);
-            var savedNonce = this._storage.getItem("nonce");
+    protected processIdToken(idToken: string, accessToken: string): Promise<ParsedIdToken>  {
+            
+            let tokenParts = idToken.split(".");
+            let headerBase64 = this.padBase64(tokenParts[0]);
+            let headerJson = atob(headerBase64);
+            let header = JSON.parse(headerJson);
+            let claimsBase64 = this.padBase64(tokenParts[1]);
+            let claimsJson = atob(claimsBase64);
+            let claims = JSON.parse(claimsJson);
+            let savedNonce = this._storage.getItem("nonce");
             
             if (Array.isArray(claims.aud)) {
                 if (claims.aud.every(v => v !== this.clientId)) {
-                    console.warn("Wrong audience: " + claims.aud.join(","));
-                    return null;
+                    let err = "Wrong audience: " + claims.aud.join(",");
+                    console.warn(err);
+                    return Promise.reject(err);
                 }
             } else {
                 if (claims.aud !== this.clientId) {
-                    console.warn("Wrong audience: " + claims.aud);
-                    return null;
+                    let err = "Wrong audience: " + claims.aud;
+                    console.warn(err);
+                    return Promise.reject(err);
                 }
             }
 
             if (this.issuer && claims.iss !== this.issuer) {
-                console.warn("Wrong issuer: " + claims.iss);
-                return null;
+                let err = "Wrong issuer: " + claims.iss;
+                console.warn(err);
+                return Promise.reject(err);
             }
 
             if (claims.nonce !== savedNonce) {
-                console.warn("Wrong nonce: " + claims.nonce);
-                return null;
+                let err = "Wrong nonce: " + claims.nonce;
+                console.warn(err);
+                return Promise.reject(err);
             }
-            
-            if (accessToken && !this.checkAtHash(accessToken, claims)) {
-                console.warn("Wrong at_hash");
-                return null;
-            }
-            
-            var now = Date.now();
-            var issuedAtMSec = claims.iat * 1000;
-            var expiresAtMSec = claims.exp * 1000;
-            
-            var tenMinutesInMsec = 1000 * 60 * 10;
+
+            let now = Date.now();
+            let issuedAtMSec = claims.iat * 1000;
+            let expiresAtMSec = claims.exp * 1000;
+            let tenMinutesInMsec = 1000 * 60 * 10;
 
             if (issuedAtMSec - tenMinutesInMsec >= now  || expiresAtMSec + tenMinutesInMsec <= now) {
-                console.warn("Token has been expired");
-                console.warn({
+                let err = "Token has been expired";
+                console.error(err);
+                console.error({
                     now: now,
                     issuedAtMSec: issuedAtMSec,
                     expiresAtMSec: expiresAtMSec
                 });
-                return null;
+                return Promise.reject(err);
             }
 
-            return {
-                id_token: idToken,
-                id_token_claims_obj: claimsJson,
-                id_token_header_obj: headerJson,
-                id_token_expires_at: expiresAtMSec
+            let validationParams: ValidationParams = {
+                accessToken: accessToken,
+                idToken: idToken,
+                jwks: this.jwks,
+                idTokenClaims: claims,
+                idTokenHeader: header
             };
+
+            if (accessToken && !this.checkAtHash(validationParams)) {
+                let err = "Wrong at_hash";
+                console.warn(err);
+                return Promise.reject(err);
+            }
+
+            return this.checkSignature(validationParams).then(_ => {
+                let result: ParsedIdToken = {
+                    id_token: idToken,
+                    id_token_claims_obj: claims,
+                    id_token_claims_json: claimsJson,
+                    id_token_header_obj: header,
+                    id_token_header_json: headerJson,
+                    id_token_expires_at: expiresAtMSec,
+                };
+                return result;
+            }) 
+
     }
     
     getIdentityClaims(): object {
@@ -734,7 +747,7 @@ export class OAuthService {
         })
     };
 
-    private createNonce(): Promise<string> {
+    protected createNonce(): Promise<string> {
         
         return new Promise((resolve, reject) => { 
         
@@ -754,62 +767,20 @@ export class OAuthService {
         });
     };
 
-    private getFragment(): object {
-        if (window.location.hash.indexOf("#") === 0) {
-            return this.parseQueryString(window.location.hash.substr(1));
-        } else {
-            return {};
+    private checkAtHash(params: ValidationParams): boolean {
+        if (!this.tokenValidationHandler) {
+            console.warn('No tokenValidationHandler configured. Cannot check at_hash.');
+            return true;
         }
-    };
-
-    private parseQueryString(queryString: string): object {
-        var data = {}, pairs, pair, separatorIndex, escapedKey, escapedValue, key, value;
-
-        if (queryString === null) {
-            return data;
-        }
-
-        pairs = queryString.split("&");
-
-        for (var i = 0; i < pairs.length; i++) {
-            pair = pairs[i];
-            separatorIndex = pair.indexOf("=");
-
-            if (separatorIndex === -1) {
-                escapedKey = pair;
-                escapedValue = null;
-            } else {
-                escapedKey = pair.substr(0, separatorIndex);
-                escapedValue = pair.substr(separatorIndex + 1);
-            }
-
-            key = decodeURIComponent(escapedKey);
-            value = decodeURIComponent(escapedValue);
-
-            if (key.substr(0, 1) === '/')
-                key = key.substr(1);
-
-            data[key] = value;
-        }
-
-        return data;
-    };
-
-    private checkAtHash(accessToken: string, idClaims: object): boolean {
-        if (!accessToken || !idClaims || !idClaims['at_hash'] ) return true;
-        var tokenHash: Array<any> = sha256(accessToken, { asBytes: true });
-        var leftMostHalf = tokenHash.slice(0, (tokenHash.length/2) );
-        var tokenHashBase64 = fromByteArray(leftMostHalf);
-        var atHash = tokenHashBase64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-        var claimsAtHash = idClaims['at_hash'].replace(/=/g, "");
-        var atHash = tokenHashBase64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-
-        if (atHash != claimsAtHash) {
-            console.error("exptected at_hash: " + atHash);    
-            console.error("actual at_hash: " + claimsAtHash);
-        }
-        
-        return (atHash == claimsAtHash);
+        return this.tokenValidationHandler.validateAtHash(params);
     }
-    
+
+    private checkSignature(params: ValidationParams): Promise<any> {
+        if (!this.tokenValidationHandler) {
+            console.warn('No tokenValidationHandler configured. Cannot check signature.');
+            return Promise.resolve(null);
+        }
+        return this.tokenValidationHandler.validateSignature(params);
+    }
+
 }

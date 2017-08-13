@@ -1,6 +1,10 @@
-import { ValidationHandler } from "./validation-handler";
+import { ValidationHandler, AbstractValidationHandler, ValidationParams } from "./validation-handler";
 
-export const NullValidationHandler: ValidationHandler = function(params) {
-    console.warn('No ValidationHandler set. Set one using the property validationHandler.');
-    return Promise.resolve();
+export class NullValidationHandler implements ValidationHandler {
+    validateSignature(validationParams: ValidationParams): Promise<any> {
+        return Promise.resolve(null);
+    }
+    validateAtHash(validationParams: ValidationParams): boolean {
+        return true;
+    }
 }

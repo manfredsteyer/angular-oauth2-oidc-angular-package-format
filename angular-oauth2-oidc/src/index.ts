@@ -14,6 +14,7 @@ import 'rxjs/add/observable/of';
 import 'rxjs/add/observable/race';
 
 export * from "./oauth-service";
+import { UrlHelperService } from "./url-helper.service";
 
 @NgModule({
   imports: [
@@ -28,7 +29,10 @@ export class OAuthModule {
   static forRoot(): ModuleWithProviders {
     return {
       ngModule: OAuthModule,
-      providers: [OAuthService]
+      providers: [
+        OAuthService,
+        UrlHelperService
+      ]
     };
   }
 }
