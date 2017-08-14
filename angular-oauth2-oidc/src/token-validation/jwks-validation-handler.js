@@ -16,12 +16,11 @@ var JwksValidationHandler = (function (_super) {
     __extends(JwksValidationHandler, _super);
     function JwksValidationHandler() {
         var _this = _super !== null && _super.apply(this, arguments) || this;
-        _this.allowedAlgorithms = ['RS256'];
+        _this.allowedAlgorithms = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'PS256', 'PS384', 'PS512'];
         _this.gracePeriodInSec = 600;
         return _this;
     }
     JwksValidationHandler.prototype.validateSignature = function (params) {
-        var _this = this;
         if (!params.accessToken)
             throw new Error('Parameter accessToken expected!');
         if (!params.idToken)
@@ -42,20 +41,14 @@ var JwksValidationHandler = (function (_super) {
             return Promise.reject(error);
         }
         var keyObj = rs.KEYUTIL.getKey(key);
-        return new Promise(function (resolve, reject) {
-            return setTimeout(function () {
-                var isValid = rs.KJUR.jws.JWS.verifyJWT(params.idToken, keyObj, { alg: _this.allowedAlgorithms, gracePeriod: _this.gracePeriodInSec });
-                console.debug('isValid', isValid);
-                if (isValid) {
-                    //return Promise.resolve();
-                    resolve();
-                }
-                else {
-                    //return Promise.reject('Signature not valid');
-                    reject('Signature not valid');
-                }
-            }, 1000);
-        });
+        var isValid = rs.KJUR.jws.JWS.verifyJWT(params.idToken, keyObj, { alg: this.allowedAlgorithms, gracePeriod: this.gracePeriodInSec });
+        console.debug('isValid', isValid);
+        if (isValid) {
+            return Promise.resolve();
+        }
+        else {
+            return Promise.reject('Signature not valid');
+        }
     };
     JwksValidationHandler.prototype.calcHash = function (valueToHash, algorithm) {
         var hashAlg = new rs.KJUR.crypto.MessageDigest({ alg: algorithm });

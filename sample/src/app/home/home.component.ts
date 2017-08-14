@@ -9,8 +9,13 @@ import {OAuthService} from "angular-oauth2-oidc";
         <div class="panel panel-default">
             <div class="panel-body">
                 <p>Login with Authorization Server</p>
+                <div class="checkbox">
+                    <label><input type="checkbox" [(ngModel)]="requestAccessToken"> Request AccessToken</label>
+                </div>
                 <button class="btn btn-default" (click)="login()">Login</button>
                 <button class="btn btn-default" (click)="logout()">Logout</button>
+
+                <button class="btn btn-default" *ngIf="access_token" (click)="loadUserProfile()">Load User Profile</button>
             </div>
         </div>
 
@@ -62,6 +67,11 @@ import {OAuthService} from "angular-oauth2-oidc";
             <p>
                 <b>id_token:</b> {{id_token}}
             </p>
+            <div *ngIf="userProfile">
+                <b>user profile:</b>
+                <pre>{{userProfile | json}}</pre>
+            </div>
+
         </div>
     </div>
 
@@ -74,17 +84,32 @@ export class HomeComponent implements OnInit {
     userName: string;
     password: string;
     loginFailed: boolean = false;
+    userProfile: object;
 
     constructor(private oauthService: OAuthService) {
     }
 
     login() {
+        /*
+         * Tweak config for implicit flow.
+         * This is needed b/c this sample uses both flows
+        */
         this.oauthService.clientId = "spa-demo";
+        this.oauthService.oidc = true;
+
         this.oauthService.initImplicitFlow('http://www.myurl.com/x/y/z');
     }
 
     logout() {
         this.oauthService.logOut();
+    }
+
+    loadUserProfile(): void {
+        this
+            .oauthService
+            .loadUserProfile()
+            .then(up => this.userProfile = up);
+
     }
 
     get givenName() {
@@ -94,11 +119,27 @@ export class HomeComponent implements OnInit {
     }
 
     testSilentRefresh() {
+        /*
+         * Tweak config for implicit flow.
+         * This is needed b/c this sample uses both flows
+        */
+        this.oauthService.clientId = "spa-demo";
+        this.oauthService.oidc = true;
+
         this
             .oauthService
             .silentRefresh()
             .then(info => console.debug('refresh ok', info))
             .catch(err => console.error('refresh error', err));
+    }
+
+    set requestAccessToken(value: boolean) {
+        this.oauthService.requestAccessToken = value;
+        localStorage.setItem('requestAccessToken', '' + value);
+    }
+
+    get requestAccessToken() {
+        return this.oauthService.requestAccessToken;
     }
 
     get id_token() {
@@ -119,7 +160,12 @@ export class HomeComponent implements OnInit {
 
     loginWithPassword() {
 
+        /*
+         * Tweak config for password flow.
+         * This is needed b/c this sample uses both flows
+        */
         this.oauthService.clientId = "demo-resource-owner";
+        this.oauthService.oidc = false;
 
         this
             .oauthService

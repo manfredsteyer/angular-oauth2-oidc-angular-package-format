@@ -16,7 +16,6 @@ export class AppComponent {
         private oauthService: OAuthService) {
 
 
-
         // URL of the SPA to redirect the user to after login
         this.oauthService.redirectUri = window.location.origin + "/index.html";
 
@@ -30,6 +29,12 @@ export class AppComponent {
         // The first three are defined by OIDC. The 4th is a usecase-specific one
         this.oauthService.scope = "openid profile email voucher";
  
+        let requestAccessTokenAsString = localStorage.getItem('requestAccessToken');
+        if (requestAccessTokenAsString) {
+            
+            let requestAccessToken = requestAccessTokenAsString == 'true';
+            this.oauthService.requestAccessToken = requestAccessToken;
+        }
         // set to true, to receive also an id_token via OpenId Connect (OIDC) in addition to the
         // OAuth2-based access_token
         // this.oauthService.oidc = true;
@@ -39,7 +44,6 @@ export class AppComponent {
         // this.oauthService.setStorage(sessionStorage);
 
         this.oauthService.issuer = 'https://steyer-identity-server.azurewebsites.net/identity';
-        
 
             this.oauthService.customQueryParams = {
                 'tenant': '4711',
@@ -64,7 +68,6 @@ export class AppComponent {
             // the auth-server redirects the user back to the web-app
             // It dosn't send the user the the login page
 
-
             console.debug(this.oauthService.tokenEndpoint);
 
             this.oauthService.events.subscribe(e => {
@@ -81,6 +84,15 @@ export class AppComponent {
             });
  
         });
+
+        this
+            .oauthService
+            .events
+            .filter(e => e.type == 'token_expires')
+            .subscribe(e => {
+                console.debug('received token_expires event', e);
+                this.oauthService.silentRefresh();
+            });
 
     }
 

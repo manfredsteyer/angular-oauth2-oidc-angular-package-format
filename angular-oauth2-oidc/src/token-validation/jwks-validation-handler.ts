@@ -10,15 +10,30 @@ export class JwksValidationHandler extends AbstractValidationHandler {
     gracePeriodInSec: number = 600;
 
     validateSignature(params: ValidationParams): Promise<any> {
-        if (!params.accessToken) throw new Error('Parameter accessToken expected!');
         if (!params.idToken) throw new Error('Parameter idToken expected!');
         if (!params.idTokenHeader) throw new Error('Parameter idTokenHandler expected.');
         if (!params.jwks) throw new Error('Parameter jwks expected!');
-    
+        
+        if (!params.jwks['keys'] || !Array.isArray(params.jwks['keys']) || params.jwks['keys'].length == 0) {
+            throw new Error('Array keys in jwks missing!');
+        }
+
         let kid: string = params.idTokenHeader['kid'];
         let keys: object[] = params.jwks['keys'];
-        let key: object = keys.find(k => k['kid'] == kid && k['use'] == 'sig');
-    
+        let key: object;
+        
+        if (!kid && params.jwks['keys'].length > 1) {
+            let error = 'Multiple keys but no kid in token!';
+            console.error(error);
+            return Promise.reject(error);
+        }
+        else if (!kid) {
+            key = params.jwks['keys'][0];
+        }
+        else {
+            key = keys.find(k => k['kid'] == kid && k['use'] == 'sig');
+        }
+
         if (!key) {
             let error = 'expected key not found in property jwks. '
                             + 'This property is most likely loaded with the '
@@ -32,8 +47,6 @@ export class JwksValidationHandler extends AbstractValidationHandler {
         let keyObj = rs.KEYUTIL.getKey(key);
         let isValid = rs.KJUR.jws.JWS.verifyJWT(params.idToken, keyObj, { alg: this.allowedAlgorithms, gracePeriod: this.gracePeriodInSec });
         
-        console.debug('isValid', isValid);
-    
         if (isValid) {
             return Promise.resolve();
 

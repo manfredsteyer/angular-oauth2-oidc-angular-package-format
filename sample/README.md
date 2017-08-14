@@ -17,12 +17,19 @@ Successfully tested with the Angular 2 and 4 and its Router, PathLocationStrateg
 - Using OIDC is optional
 - Token Refresh for Implicit Flow by implementing "silent refresh"
 - Token Refresh for Password Flow by using a Refresh Token
+- Automatically refreshing a token when/ some time before it expires
 - Querying Userinfo Endpoint
 - Querying Discovery Document to ease configuration
 - Validating claims of the id_token regarding the specs
 - Validating the signature of the received id_token
 - Hook for further custom validations
 - Single-Sign-Out by redirecting to the auth-server's logout-endpoint
+
+## Breaking Changes in Version 2
+
+- The property ``oidc`` defaults to ``true``.
+- If you are just using oauth2, you have to set ``oidc`` to ``false``. Otherwise, the validation of the user profile will fail!
+- By default, ``sessionStorage`` is used. To use ``localStorage`` call method setStorage
 
 ## Sample-Auth-Server
 
@@ -284,6 +291,22 @@ this
 ```
 
 When there is an error in the iframe that prevents the communication with the main application, silentRefresh will give you a timeout. To configure the timespan for this, you can set the property ``siletRefreshTimeout`` (msec). The default value is 20.000 (20 seconds).
+
+### Automatically refreshing a token when/ before it expires
+
+To automatically refresh a token when/ some time before it expires, you can make use of the event ``token_expires``:
+
+```
+this
+    .oauthService
+    .events
+    .filter(e => e.type == 'token_expires')
+    .subscribe(e => {
+        this.oauthService.silentRefresh();
+    });
+```
+
+By default, this event is fired after 75% of the token's life time is over. You can adjust this factor by setting the property ``timeoutFactor`` to a value between 0 and 1. For instance, 0.5 means, that the event is fired after half of the life time is over and 0.33 triggers the event after a third.
 
 ### Callback after successful login
 
