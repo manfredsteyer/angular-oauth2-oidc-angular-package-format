@@ -3,12 +3,25 @@ import { Injectable } from '@angular/core';
 @Injectable()
 export class UrlHelperService {
 
-    public getFragment(): object {
-        if (window.location.hash.indexOf("#") === 0) {
-            return this.parseQueryString(window.location.hash.substr(1));
-        } else {
+    public getHashFragmentParams(customHashFragment?: string): object {
+        
+        let hash = customHashFragment || window.location.hash;
+
+        if (hash.indexOf("#") !== 0) {
             return {};
         }
+
+        let questionMarkPosition = hash.indexOf('?');
+        
+        if (questionMarkPosition > -1) {
+            hash = hash.substr(questionMarkPosition+1);
+        }
+        else {
+            hash = hash.substr(1);
+        }
+
+        return this.parseQueryString(hash);
+
     };
 
     public parseQueryString(queryString: string): object {

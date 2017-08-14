@@ -2,6 +2,7 @@ import { FlightHistoryComponent } from './flight-history/flight-history.componen
 import { Component } from '@angular/core';
 import { OAuthService } from 'angular-oauth2-oidc';
 import { JwksValidationHandler } from 'angular-oauth2-oidc/token-validation';
+import { Router } from "@angular/router";
 
 @Component({
     selector: 'flight-app',
@@ -10,7 +11,11 @@ import { JwksValidationHandler } from 'angular-oauth2-oidc/token-validation';
 export class AppComponent {
     public info: string = "Welt";
 
-    constructor(private oauthService: OAuthService) {
+    constructor(
+        private router: Router,
+        private oauthService: OAuthService) {
+
+
 
         // URL of the SPA to redirect the user to after login
         this.oauthService.redirectUri = window.location.origin + "/index.html";
@@ -36,6 +41,11 @@ export class AppComponent {
         this.oauthService.issuer = 'https://steyer-identity-server.azurewebsites.net/identity';
         
 
+            this.oauthService.customQueryParams = {
+                'tenant': '4711',
+                'otherParam': 'someValue'
+            };
+
         // Set a dummy secret
         // Please note that the auth-server used here demand the client to transmit a client secret, although
         // the standard explicitly cites that the password flow can also be used without it. Using a client secret
@@ -43,7 +53,7 @@ export class AppComponent {
         // Using such a dummy secreat is as safe as using no secret.
         this.oauthService.dummyClientSecret = "geheim";
 
-        this.oauthService.validationHandler = JwksValidationHandler;
+        this.oauthService.tokenValidationHandler = new JwksValidationHandler();
 
         // Load Discovery Document and then try to login the user
         this.oauthService.loadDiscoveryDocument().then((doc) => {
@@ -53,7 +63,22 @@ export class AppComponent {
             // This method just tries to parse the token(s) within the url when
             // the auth-server redirects the user back to the web-app
             // It dosn't send the user the the login page
-            this.oauthService.tryLogin();      
+
+
+            console.debug(this.oauthService.tokenEndpoint);
+
+            this.oauthService.events.subscribe(e => {
+                console.debug('oauth/oidc event', e);
+            })
+
+            this.oauthService.tryLogin({
+                onTokenReceived: (info) => {
+                    console.debug('state', info.state);
+                }
+            })
+            .then(_ => {
+                this.router.navigate(['/']);
+            });
  
         });
 

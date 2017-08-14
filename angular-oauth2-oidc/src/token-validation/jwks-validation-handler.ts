@@ -6,8 +6,8 @@ let rs = require('jsrsasign');
 export class JwksValidationHandler extends AbstractValidationHandler {
     
 
-    allowedAlgorithms: string[] = ['RS256'];
-    gracePeriodInSec: 300;
+    allowedAlgorithms: string[] = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'PS256', 'PS384', 'PS512']
+    gracePeriodInSec: number = 600;
 
     validateSignature(params: ValidationParams): Promise<any> {
         if (!params.accessToken) throw new Error('Parameter accessToken expected!');
@@ -36,10 +36,11 @@ export class JwksValidationHandler extends AbstractValidationHandler {
     
         if (isValid) {
             return Promise.resolve();
+
         }
-        
-        return Promise.reject('Signature not valid');
-    
+        else {
+            return Promise.reject('Signature not valid');
+        }
     }
 
     calcHash(valueToHash: string, algorithm: string): string {

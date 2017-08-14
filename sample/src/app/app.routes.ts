@@ -28,4 +28,8 @@ let APP_ROUTES: Routes = [
     }
 ];
 
-export let AppRouterModule = RouterModule.forRoot(APP_ROUTES, { preloadingStrategy: CustomPreloadingStrategy } );
+export let AppRouterModule = RouterModule.forRoot(APP_ROUTES, { 
+    preloadingStrategy: CustomPreloadingStrategy,
+    useHash: true,
+    initialNavigation: false
+} );

@@ -96,6 +96,8 @@ export class OAuthService {
     public tokenValidationHandler: ValidationHandler;
     public jwks: object;
 
+    public customQueryParams: object;
+
     public discoveryDocumentLoaded: boolean = false;
   
     /**
@@ -113,13 +115,17 @@ export class OAuthService {
 
     private grantTypesSupported: Array<string> = [];
 
-    private _storage: OAuthStorage = localStorage;
+    private _storage: OAuthStorage;
 
     constructor(
         private http: Http,
         private urlHelper: UrlHelperService) {
        this.discoveryDocumentLoaded$ = this.discoveryDocumentLoadedSubject.asObservable();
        this.events = this.eventsSubject.asObservable();
+
+       if (sessionStorage) {
+           this._storage = sessionStorage;
+       }
     }
 
     private debug(...args): void {
@@ -198,7 +204,10 @@ export class OAuthService {
             this.http.get(this.userinfoEndpoint, { headers }).map(r => r.json()).subscribe(
                 (doc) => {
                     this.debug('userinfo received', doc);
-                    this._storage.setItem('id_token_claims_obj', JSON.stringify(doc));
+
+                    let existingClaims = this._storage.getItem('id_token_claims_obj') || {};
+                    let mergedDoc = Object.assign({}, existingClaims, doc);
+                    this._storage.setItem('id_token_claims_obj', JSON.stringify(mergedDoc));
                     this.eventsSubject.next(new OAuthSuccessEvent('user_profile_loaded'));
                     resolve(doc);
                 },
@@ -315,7 +324,7 @@ export class OAuthService {
 
             if (!prefixedMessage.startsWith(expectedPrefix)) return;
 
-            let message = prefixedMessage.substr(expectedPrefix.length);
+            let message = '#' + prefixedMessage.substr(expectedPrefix.length);
 
             this.tryLogin({
                 customHashFragment: message,
@@ -354,6 +363,7 @@ export class OAuthService {
         let redirectUri = this.silentRefreshRedirectUri || this.redirectUri;
         this.createLoginUrl(null, null, redirectUri).then(url => {
             iframe.setAttribute('src', url);
+            iframe.style.visibility = 'hidden';
             document.body.appendChild(iframe);
         });
 
@@ -393,7 +403,7 @@ export class OAuthService {
             redirectUri = this.redirectUri;
         }
 
-        return this.createAndSaveNonce().then(function (nonce: any) {
+        return this.createAndSaveNonce().then((nonce: any) => {
 
             if (state) {
                 state = nonce + ";" + state;
@@ -406,8 +416,11 @@ export class OAuthService {
                 that.responseType = "id_token token";
             }
 
+            let seperationChar = (that.loginUrl.indexOf('?') > -1) ? '&' : '?';
+
             var url = that.loginUrl 
-                        + "?response_type="
+                        + seperationChar
+                        + "response_type="
                         + encodeURIComponent(that.responseType)
                         + "&client_id="
                         + encodeURIComponent(that.clientId)
@@ -426,6 +439,12 @@ export class OAuthService {
             
             if (that.oidc) {
                 url += "&nonce=" + encodeURIComponent(nonce);
+            }
+
+            if (this.customQueryParams) {
+                for(let key of Object.getOwnPropertyNames(this.customQueryParams)) {
+                    url += "&" + key + "=" + encodeURIComponent(this.customQueryParams[key]);
+                }
             }
             
             return url;
@@ -470,17 +489,17 @@ export class OAuthService {
         }
     }
 
-    tryLogin(options: LoginOptions = null): Promise<void> | null {
+    tryLogin(options: LoginOptions = null): Promise<void> {
         
         options = options || { };
             
         let parts: object;
 
         if (options.customHashFragment) {
-            parts = this.urlHelper.parseQueryString(options.customHashFragment);
+            parts = this.urlHelper.getHashFragmentParams(options.customHashFragment);
         }
         else {
-            parts = this.urlHelper.getFragment();
+            parts = this.urlHelper.getHashFragmentParams();
         }
 
         if (parts["error"]) {
@@ -495,11 +514,13 @@ export class OAuthService {
         var idToken = parts["id_token"];
         var state = decodeURIComponent(parts["state"]);
         
+
+
         var oidcSuccess = false;
         var oauthSuccess = false;
 
-        if (!accessToken || !state) return null;
-        if (this.oidc && !idToken) return null;
+        if (!accessToken || !state) return Promise.resolve();
+        if (this.oidc && !idToken) return Promise.resolve();
 
         // Our state might be URL encoded
         // Check for this and then decode it if it is

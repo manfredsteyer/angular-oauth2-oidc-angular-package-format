@@ -80,8 +80,7 @@ export class HomeComponent implements OnInit {
 
     login() {
         this.oauthService.clientId = "spa-demo";
-
-        this.oauthService.initImplicitFlow();
+        this.oauthService.initImplicitFlow('http://www.myurl.com/x/y/z');
     }
 
     logout() {

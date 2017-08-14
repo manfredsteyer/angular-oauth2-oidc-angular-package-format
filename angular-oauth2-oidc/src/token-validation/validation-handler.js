@@ -19,7 +19,7 @@ var AbstractValidationHandler = (function () {
     };
     AbstractValidationHandler.prototype.inferHashAlgorithm = function (jwtHeader) {
         var alg = jwtHeader['alg'];
-        if (!alg.match(/^\.S[0-9]{3}$/)) {
+        if (!alg.match(/^.S[0-9]{3}$/)) {
             throw new Error('Algorithm not supported: ' + alg);
         }
         return 'sha' + alg.substr(2);
