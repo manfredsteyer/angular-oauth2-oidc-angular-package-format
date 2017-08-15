@@ -5,7 +5,7 @@
     "build": "gulp build",
     "build:watch": "gulp",
     "docs": "npm run docs:build",
-    "docs:build": "compodoc -p tsconfig.json -n angular-oauth2-oidc -d docs --hideGenerator",
+    "docs:build": "compodoc -p tsconfig.json -n angular-oauth2-oidc -d docs --hideGenerator --disableCoverage --disablePrivateOrInternalSupport",
     "docs:serve": "npm run docs:build -- -s",
     "docs:watch": "npm run docs:build -- -s -w",
     "lint": "tslint --type-check --project tsconfig.json src/**/*.ts",
@@ -68,10 +68,6 @@
     "node": ">=6.0.0"
   },
   "dependencies": {
-    "base64-js": "^1.2.1",
-    "js-base64": "^2.1.9",
-    "jsrsasign": "^8.0.3",
-    "sha.js": "^2.4.8",
-    "sha256": "^0.2.0"
+    "jsrsasign": "^8.0.3"
   }
 }

@@ -5,3 +5,4 @@ function __export(m) {
 exports.__esModule = true;
 __export(require("./jwks-validation-handler"));
 __export(require("./null-validation-handler"));
+__export(require("./validation-handler"));

@@ -14,6 +14,10 @@ import 'rxjs/add/observable/of';
 import 'rxjs/add/observable/race';
 
 export * from "./oauth-service";
+export * from './token-validation/jwks-validation-handler';
+export * from './token-validation/null-validation-handler';
+export * from './token-validation/validation-handler';
+
 import { UrlHelperService } from "./url-helper.service";
 
 @NgModule({

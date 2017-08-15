@@ -26,7 +26,7 @@ import { OAuthModule } from 'angular-oauth2-oidc';
         FlightHistoryComponent
     ],
     providers: [
-        { provide: BASE_URL, useValue: "https://hpg-keycloak.northeurope.cloudapp.azure.com:8443"}
+        { provide: BASE_URL, useValue: "http://www.angular.at"}
     ],
     bootstrap: [
         AppComponent

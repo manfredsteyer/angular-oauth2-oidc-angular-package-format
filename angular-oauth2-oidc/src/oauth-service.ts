@@ -1,6 +1,3 @@
-import {Base64} from 'js-base64';
-import {fromByteArray} from 'base64-js';
-import * as sha256Module from 'sha256';
 import { Http, URLSearchParams, Headers } from '@angular/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs/Observable';
@@ -9,120 +6,139 @@ import { ValidationHandler, ValidationParams } from "./token-validation/validati
 import { NullValidationHandler } from "./token-validation/null-validation-handler";
 import { UrlHelperService } from "./url-helper.service";
 import { Subscription } from "rxjs/Subscription";
-
-declare var require: any;
-var sha256: any = require('sha256');
-
-export class LoginOptions {
-    onTokenReceived?: (receivedTokens: ReceivedTokens) => void;
-    validationHandler?: (receivedTokens: ReceivedTokens) => Promise<any>;
-    onLoginError?: (params: object) => void;
-    customHashFragment?: string;
-}
-
-export interface OAuthStorage {
-    getItem(key: string): string | null;
-    removeItem(key: string): void;
-    setItem(key: string, data: string): void;
-}
+import { OAuthEvent, OAuthInfoEvent, OAuthErrorEvent, OAuthSuccessEvent } from "./events";
+import { OAuthStorage, LoginOptions, ParsedIdToken } from "./types";
 
 /**
- * Represents the received tokens, the received state
- * and the parsed claims from the id-token.
+ * Service for logging in and logging out with
+ * OIDC and OAuth2. Supports implicit flow and
+ * password flow.
  */
-export class ReceivedTokens {
-    idToken: string;
-    accessToken: string;
-    idClaims?: object;
-    state?: string
-}
-
-export type EventType = 
-'discovery_document_loaded'
-| 'jwks_load_error'
-| 'invalid_nonce_in_state'
-| 'discovery_document_load_error'
-| 'discovery_document_validation_error'
-| 'user_profile_loaded'
-| 'user_profile_load_error'
-| 'token_received'
-| 'token_error'
-| 'token_refreshed'
-| 'token_refresh_error'
-| 'silent_refresh_error'
-| 'silently_refreshed'
-| 'silent_refresh_timeout'
-| 'token_validation_error'
-| 'token_expires';
-
-
-export abstract class OAuthEvent {
-    constructor(
-        readonly type: EventType) {
-    }
-}
-
-export class OAuthSuccessEvent extends OAuthEvent {
-}
-
-export class OAuthInfoEvent extends OAuthEvent {
-    constructor(
-        type: EventType,
-        readonly info: any = null
-    ) {
-        super(type);
-    }
-}
-
-export class OAuthErrorEvent extends OAuthEvent {
-
-    constructor(
-        type: EventType,
-        readonly reason: object,
-        readonly params: object = null
-    ) {
-        super(type);
-    }
-
-}
-
-export interface ParsedIdToken {
-    idToken: string;
-    idTokenClaims: object,
-    idTokenHeader: object,
-    idTokenClaimsJson: string,
-    idTokenHeaderJson: string,
-    idTokenExpiresAt: number;
-}
-
 @Injectable()
 export class OAuthService {
 
+    /**
+     * The client's id as registered with the auth server
+     */
     public clientId = "";
+
+    /**
+     * The client's redirectUri as registered with the auth server
+     */
     public redirectUri = "";
+
+    /**
+     * An optional second redirectUri where the auth server
+     * redirects the user to after logging out.
+     */
     public postLogoutRedirectUri = "";
+
+    /**
+     * The auth server's endpoint that allows to log
+     * the user in when using implicit flow.
+     */
     public loginUrl = "";
+
+    /**
+     * The requested scopes
+     */
     public scope = "openid profile";
+
     public resource = "";
     public rngUrl = "";
+
+    /**
+     * Defines whether to use OpenId Connect during
+     * implicit flow.
+     */
     public oidc: boolean = true;
+
+    /**
+     * Defines whether to request a access token during
+     * implicit flow.
+     */
     public requestAccessToken: boolean = true;
     public options: any;
+    
+    /**
+     * The received (passed around) state, when logging
+     * in with implicit flow.
+     */
     public state = "";
+
+    /**
+     * The issuer's uri.
+     */
     public issuer = "";
+
+    /**
+     * The logout url.
+     */
     public logoutUrl = "";
+
+    /**
+     * Defines whether to clear the hash fragment after logging in.
+     */
     public clearHashAfterLogin: boolean = true;
+
+    /**
+     * Url of the token endpoint as defined by OpenId Connect and OAuth 2.
+     */
     public tokenEndpoint: string;
+
+    /**
+     * Url of the userinfo endpoint as defined by OpenId Connect.
+     */
     public userinfoEndpoint: string;
+
     public responseType: string = "token";
+
+    /**
+     * Defines whether additional debug information should 
+     * be shown at the console.
+     */
     public showDebugInformation: boolean = false;
+
+    /**
+     * The redirect uri used when doing silent refresh.
+     */
     public silentRefreshRedirectUri: string = '';
+
     public silentRefreshMessagePrefix: string = '';
+
+    /**
+     * Timeout for silent refresh. 
+     */
     public siletRefreshTimeout: number = 1000 * 20; 
+
+    /**
+     * Some auth servers don't allow using password flow
+     * w/o a client secreat while the standards do not
+     * demand for it. In this case, you can set a password
+     * here. As this passwort is exposed to the public
+     * it does not bring additional security and is therefore
+     * as good as using no password.
+     */
     public dummyClientSecret: string;
+
+    /**
+     * The ValidationHandler used to validate received
+     * id_tokens.
+     */
     public tokenValidationHandler: ValidationHandler;
 
+    /**
+     * Defines whether https is required.
+     * The default value is remoteOnly which only allows
+     * http for location, while every other domains need
+     * to be used with https.
+     */
     public requireHttps: boolean | 'remoteOnly' = 'remoteOnly';
+    
+    /**
+     * Defines whether every url provided by the discovery 
+     * document has to start with the issuer's url.
+     */
     public strictDiscoveryDocumentValidation: boolean = true;
 
     /**
@@ -139,14 +155,18 @@ export class OAuthService {
     public customQueryParams: object;
 
     /**
-     * @deprecated use property events instead
+     * @internal
+     * Deprecated:  use property events instead
      */
+    
     public discoveryDocumentLoaded: boolean = false;
   
     /**
-     * @deprecated use property events instead
+     * @internal
+     * Deprecated:  use property events instead
      */
     public discoveryDocumentLoaded$: Observable<object>;
+    
     private discoveryDocumentLoadedSubject: Subject<object> = new Subject<object>();
 
     /**
@@ -157,13 +177,16 @@ export class OAuthService {
     private eventsSubject: Subject<OAuthEvent> = new Subject<OAuthEvent>();
 
     public silentRefreshIFrameName: string = 'angular-oauth-oidc-silent-refresh-iframe';
-
     private silentRefreshPostMessageEventListener: EventListener;
 
     private grantTypesSupported: Array<string> = [];
-
     private _storage: OAuthStorage;
 
+    /**
+     * Defines when the token_timeout event should be raised.
+     * If you set this to the default value 0.75, the event
+     * is triggered after 75% of the token's life time.
+     */
     public timeoutFactor: number = 0.75;
 
     private accessTokenTimeoutSubscription: Subscription;
@@ -299,11 +322,27 @@ export class OAuthService {
         return timeout;
     }
 
+    /**
+     * Sets a custom storage used to store the received
+     * tokens on client side. By default, the browser's
+     * sessionStorage is used.
+     * 
+     * @param storage 
+     */
     public setStorage(storage: OAuthStorage): void {
         this._storage = storage;
     }
 
-    loadDiscoveryDocument(fullUrl: string = null): Promise<object> {
+    /**
+     * Loads the discovery document to configure most
+     * properties of this service. The url of the discovery
+     * document is infered from the issuer's url according
+     * to the OpenId Connect spec. To use another url you
+     * can pass it to to optional parameter fullUrl.
+     * 
+     * @param fullUrl 
+     */
+    public loadDiscoveryDocument(fullUrl: string = null): Promise<object> {
 
         return new Promise((resolve, reject) => {
 
@@ -408,13 +447,34 @@ export class OAuthService {
         return true;
     }
 
-    fetchTokenUsingPasswordFlowAndLoadUserProfile(userName: string, password: string, headers: Headers = new Headers()): Promise<object> {
+    /**
+     * Uses password flow to exchange userName and password for an
+     * access_token. After receiving the access_token, this method
+     * uses it to query the userinfo endpoint in order to get information
+     * about the user in question.
+     * 
+     * When using this, make sure that the property oidc is set to false.
+     * Otherwise stricter validations take happen that makes this operation
+     * fail.
+     * 
+     * @param userName 
+     * @param password 
+     * @param headers Optional additional http-headers.
+     */
+    public fetchTokenUsingPasswordFlowAndLoadUserProfile(userName: string, password: string, headers: Headers = new Headers()): Promise<object> {
         return this
                 .fetchTokenUsingPasswordFlow(userName, password, headers)
                 .then(() => this.loadUserProfile());
     }
 
-    loadUserProfile(): Promise<object> {
+    /**
+     * Loads the user profile by accessing the user info endpoint defined by OpenId Connect.
+     * 
+     * When using this with OAuth2 password flow, make sure that the property oidc is set to false.
+     * Otherwise stricter validations take happen that makes this operation
+     * fail.
+     */
+    public loadUserProfile(): Promise<object> {
         if (!this.hasValidAccessToken()) throw new Error("Can not load User Profile without access_token");
         if (!this.validateUrlForHttps(this.userinfoEndpoint)) throw new Error('userinfoEndpoint must use Http. Also check property requireHttps.');
         
@@ -453,7 +513,13 @@ export class OAuthService {
 
     }
 
-    fetchTokenUsingPasswordFlow(userName: string, password: string, headers: Headers = new Headers()): Promise<object> {
+    /**
+     * Uses password flow to exchange userName and password for an access_token.
+     * @param userName 
+     * @param password 
+     * @param headers Optional additional http-headers.
+     */
+    public fetchTokenUsingPasswordFlow(userName: string, password: string, headers: Headers = new Headers()): Promise<object> {
 
         if (!this.validateUrlForHttps(this.tokenEndpoint)) throw new Error('tokenEndpoint must use Http. Also check property requireHttps.');
 
@@ -498,7 +564,7 @@ export class OAuthService {
      * A solution for this is provided by the
      * method silentRefresh.
      */
-    refreshToken(): Promise<object> {
+    public refreshToken(): Promise<object> {
 
         if (!this.validateUrlForHttps(this.tokenEndpoint)) throw new Error('tokenEndpoint must use Http. Also check property requireHttps.');
 
@@ -579,8 +645,10 @@ export class OAuthService {
     
     /**
      * Performs a silent refresh for implicit flow.
+     * Use this method to get a new tokens when/ before 
+     * the existing tokens expires.
      */
-    silentRefresh(): Promise<OAuthEvent> {
+    public silentRefresh(): Promise<OAuthEvent> {
         
         if (!this.validateUrlForHttps(this.loginUrl)) throw new Error('tokenEndpoint must use Http. Also check property requireHttps.');
 
@@ -626,7 +694,7 @@ export class OAuthService {
                 .toPromise();
     }
     
-    createLoginUrl(
+    private createLoginUrl(
         state: string = '', 
         loginHint: string = '',
         customRedirectUri: string = ''
@@ -706,7 +774,14 @@ export class OAuthService {
         });
     };
 
-    initImplicitFlow(additionalState = "", loginHint=""): void {
+    /**
+     * Starts the implicit flow and redirects to user to
+     * the auth servers login url. 
+     * 
+     * @param additionalState Optinal state that is passes around. You find this state in the property ``state`` after ``tryLogin`` logged in the user.
+     * @param loginHint 
+     */
+    public initImplicitFlow(additionalState = "", loginHint=""): void {
         
         if (!this.validateUrlForHttps(this.loginUrl)) {
             throw new Error('loginUrl must use Http. Also check property requireHttps.');
@@ -749,7 +824,17 @@ export class OAuthService {
         }
     }
 
-    tryLogin(options: LoginOptions = null): Promise<void> {
+    private receivedFirstToken = true;
+
+    /**
+     * Checks whether there are tokens in the hash fragment
+     * as a result of the implicit flow. These tokens are
+     * parsed, validated and used to sign the user in to the
+     * current client.
+     * 
+     * @param options Optinal options.
+     */
+    public tryLogin(options: LoginOptions = null): Promise<void> {
         
         options = options || { };
             
@@ -806,7 +891,6 @@ export class OAuthService {
             }
             this.storeAccessTokenResponse(accessToken, null, parts['expires_in']);
         }
-
 
         if (!this.oidc) return Promise.resolve();
 
@@ -960,13 +1044,19 @@ export class OAuthService {
 
     }
     
-    getIdentityClaims(): object {
+    /**
+     * Returns the received claims about the user.
+     */
+    public getIdentityClaims(): object {
         var claims = this._storage.getItem("id_token_claims_obj");
         if (!claims) return null;
         return JSON.parse(claims);
     }
     
-    getIdToken(): string {
+    /**
+     * Returns the current id_token.
+     */
+    public getIdToken(): string {
         return this._storage.getItem("id_token");
     }
     
@@ -977,19 +1067,33 @@ export class OAuthService {
         return base64data;
     }
 
-    getAccessToken(): string {
+    /**
+     * Returns the current access_token.
+     */
+    public getAccessToken(): string {
         return this._storage.getItem("access_token");
     };
 
-    getAccessTokenExpiration(): number {
+    /**
+     * Returns the expiration date of the access_token
+     * as milliseconds since 1970.
+     */
+    public getAccessTokenExpiration(): number {
         return parseInt(this._storage.getItem("expires_at"));
     }
 
-    getIdTokenExpiration(): number {
+    /**
+     * Returns the expiration date of the id_token
+     * as milliseconds since 1970.
+     */
+    public getIdTokenExpiration(): number {
         return parseInt(this._storage.getItem("id_token_expires_at"));
     }
 
-    hasValidAccessToken(): boolean {
+    /**
+     * Checkes, whether there is a valid access_token.
+    */
+    public hasValidAccessToken(): boolean {
         if (this.getAccessToken()) {
 
             var expiresAt = this._storage.getItem("expires_at");
@@ -1004,7 +1108,10 @@ export class OAuthService {
         return false;
     };
     
-    hasValidIdToken(): boolean {
+    /**
+     * Checkes, whether there is a valid id_token.
+    */
+    public hasValidIdToken(): boolean {
         if (this.getIdToken()) {
 
             var expiresAt = this._storage.getItem("id_token_expires_at");
@@ -1019,11 +1126,21 @@ export class OAuthService {
         return false;
     };
     
-    authorizationHeader(): string {
+    /**
+     * Returns the auth-header that can be used
+     * to transmit the access_token to a service
+    */
+    public authorizationHeader(): string {
         return "Bearer " + this.getAccessToken();
     }
     
-    logOut(noRedirectToLogoutUrl: boolean = false): void {
+    /**
+     * Removes all tokens and logs the user out.
+     * If a logout url is configured, the user is 
+     * redirected to it.
+     * @param noRedirectToLogoutUrl 
+     */
+    public logOut(noRedirectToLogoutUrl: boolean = false): void {
         var id_token = this.getIdToken();
         this._storage.removeItem("access_token");
         this._storage.removeItem("id_token");

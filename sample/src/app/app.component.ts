@@ -1,7 +1,7 @@
 import { FlightHistoryComponent } from './flight-history/flight-history.component';
 import { Component } from '@angular/core';
 import { OAuthService } from 'angular-oauth2-oidc';
-import { JwksValidationHandler } from 'angular-oauth2-oidc/token-validation';
+import { JwksValidationHandler } from 'angular-oauth2-oidc';
 import { Router } from "@angular/router";
 
 @Component({
@@ -14,7 +14,6 @@ export class AppComponent {
     constructor(
         private router: Router,
         private oauthService: OAuthService) {
-
 
         // URL of the SPA to redirect the user to after login
         this.oauthService.redirectUri = window.location.origin + "/index.html";
@@ -74,15 +73,21 @@ export class AppComponent {
                 console.debug('oauth/oidc event', e);
             })
 
+            let initialNavigation = true;
+
             this.oauthService.tryLogin({
                 onTokenReceived: (info) => {
                     console.debug('state', info.state);
                 }
             })
+            /*
             .then(_ => {
-                this.router.navigate(['/']);
+                if (initialNavigation) {
+                    this.router.navigate(['/']);
+                    initialNavigation = false;
+                }
             });
- 
+            */
         });
 
         this

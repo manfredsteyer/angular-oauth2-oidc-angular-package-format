@@ -3,10 +3,23 @@ import { ValidationHandler, AbstractValidationHandler, ValidationParams } from "
 declare var require: any;
 let rs = require('jsrsasign');
 
+/**
+ * Validates the signature of an id_token against one
+ * of the keys of an JSON Web Key Set (jwks).
+ * 
+ * This jwks can be provided by the discovery document.
+*/
 export class JwksValidationHandler extends AbstractValidationHandler {
     
-
+    /**
+     * Allowed algorithms
+     */
     allowedAlgorithms: string[] = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'PS256', 'PS384', 'PS512']
+    
+    /**
+     * Time period in seconds the timestamp in the signature can
+     * differ from the current time.
+     */
     gracePeriodInSec: number = 600;
 
     validateSignature(params: ValidationParams): Promise<any> {
@@ -49,7 +62,6 @@ export class JwksValidationHandler extends AbstractValidationHandler {
         
         if (isValid) {
             return Promise.resolve();
-
         }
         else {
             return Promise.reject('Signature not valid');

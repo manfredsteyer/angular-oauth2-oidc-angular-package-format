@@ -1,8 +1,16 @@
 "use strict";
 exports.__esModule = true;
+/**
+ * This abstract implementation of ValidationHandler already implements
+ * the method validateAtHash. However, to make use of it,
+ * you have to override the method calcHash.
+*/
 var AbstractValidationHandler = (function () {
     function AbstractValidationHandler() {
     }
+    /**
+     * Validates the at_hash in an id_token against the received access_token.
+     */
     AbstractValidationHandler.prototype.validateAtHash = function (params) {
         var hashAlg = this.inferHashAlgorithm(params.idTokenHeader);
         var tokenHash = this.calcHash(params.accessToken, hashAlg); //sha256(accessToken, { asString: true });
@@ -17,6 +25,12 @@ var AbstractValidationHandler = (function () {
         }
         return (atHash == claimsAtHash);
     };
+    /**
+     * Infers the name of the hash algorithm to use
+     * from the alg field of an id_token.
+     *
+     * @param jwtHeader the id_token's parsed header
+     */
     AbstractValidationHandler.prototype.inferHashAlgorithm = function (jwtHeader) {
         var alg = jwtHeader['alg'];
         if (!alg.match(/^.S[0-9]{3}$/)) {

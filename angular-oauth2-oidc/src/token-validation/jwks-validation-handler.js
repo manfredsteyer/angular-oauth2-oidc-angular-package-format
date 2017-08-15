@@ -12,26 +12,51 @@ var __extends = (this && this.__extends) || (function () {
 exports.__esModule = true;
 var validation_handler_1 = require("./validation-handler");
 var rs = require('jsrsasign');
+/**
+ * Validates the signature of an id_token against one
+ * of the keys of an JSON Web Key Set (jwks).
+ *
+ * This jwks can be provided by the discovery document.
+*/
 var JwksValidationHandler = (function (_super) {
     __extends(JwksValidationHandler, _super);
     function JwksValidationHandler() {
         var _this = _super !== null && _super.apply(this, arguments) || this;
+        /**
+         * Allowed algorithms
+         */
         _this.allowedAlgorithms = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'PS256', 'PS384', 'PS512'];
+        /**
+         * Time period in seconds the timestamp in the signature can
+         * differ from the current time.
+         */
         _this.gracePeriodInSec = 600;
         return _this;
     }
     JwksValidationHandler.prototype.validateSignature = function (params) {
-        if (!params.accessToken)
-            throw new Error('Parameter accessToken expected!');
         if (!params.idToken)
             throw new Error('Parameter idToken expected!');
         if (!params.idTokenHeader)
             throw new Error('Parameter idTokenHandler expected.');
         if (!params.jwks)
             throw new Error('Parameter jwks expected!');
+        if (!params.jwks['keys'] || !Array.isArray(params.jwks['keys']) || params.jwks['keys'].length == 0) {
+            throw new Error('Array keys in jwks missing!');
+        }
         var kid = params.idTokenHeader['kid'];
         var keys = params.jwks['keys'];
-        var key = keys.find(function (k) { return k['kid'] == kid && k['use'] == 'sig'; });
+        var key;
+        if (!kid && params.jwks['keys'].length > 1) {
+            var error = 'Multiple keys but no kid in token!';
+            console.error(error);
+            return Promise.reject(error);
+        }
+        else if (!kid) {
+            key = params.jwks['keys'][0];
+        }
+        else {
+            key = keys.find(function (k) { return k['kid'] == kid && k['use'] == 'sig'; });
+        }
         if (!key) {
             var error = 'expected key not found in property jwks. '
                 + 'This property is most likely loaded with the '
@@ -42,7 +67,6 @@ var JwksValidationHandler = (function (_super) {
         }
         var keyObj = rs.KEYUTIL.getKey(key);
         var isValid = rs.KJUR.jws.JWS.verifyJWT(params.idToken, keyObj, { alg: this.allowedAlgorithms, gracePeriod: this.gracePeriodInSec });
-        console.debug('isValid', isValid);
         if (isValid) {
             return Promise.resolve();
         }

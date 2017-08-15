@@ -1,9 +1,0 @@
-. Hashing ... ok
-. Bugs ... ok
-. Custom Params ... ok
-. Event: Token Expiration ... ok
-. Validate Discovery 
-. Cert
-. Readme + Code Comments
-
-. Revoke
